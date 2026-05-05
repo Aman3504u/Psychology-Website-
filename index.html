@@ -289,7 +289,6 @@
   <div class="scenes" id="scenes">
     <section class="scene" data-scene="0">
       <h1>The mind is<br />not quiet</h1>
-      <p class="sub">A cinematic exploration of the internal dialogue. High-contrast, uncompromising depth.</p>
     </section>
 
     <section class="scene" data-scene="1">
@@ -318,7 +317,6 @@
     </section>
 
     <section class="scene" data-scene="6">
-      <span class="label">Insight</span>
       <h1>Change the pattern.<br />Change your life.</h1>
     </section>
   </div>
@@ -677,7 +675,16 @@
     renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     const scene = new THREE.Scene();
+    // Force the scene clear color so EffectComposer's RenderPass doesn't pick
+    // up a neutral default; this guarantees background reads as #05070A.
+    scene.background = new THREE.Color(0x05070a);
     scene.fog = new THREE.FogExp2(0x05070a, 0.045);
+
+    // Very dim neutral-white ambient (0.05 max). Particles use PointsMaterial
+    // and aren't lit by it, but it keeps the lighting setup explicitly neutral
+    // so nothing in the rig contributes a blue tint.
+    const ambient = new THREE.AmbientLight(0xffffff, 0.05);
+    scene.add(ambient);
 
     const camera = new THREE.PerspectiveCamera(
       55,
