@@ -13,6 +13,16 @@
     rel="stylesheet"
   />
 
+  <!-- Preload background image layers so they are decoded before the
+       scroll-driven scene that uses them. The grid in particular must be
+       in memory before scene 5 starts (75% scroll); without preload, slow
+       mobile connections were leaving scene 5 with a missing grid texture
+       so the only visible layer was the upcoming orb fade-in. -->
+  <link rel="preload" as="image" href="assets/grid.png" />
+  <link rel="preload" as="image" href="assets/neural.png" />
+  <link rel="preload" as="image" href="assets/silhouette.png" />
+  <link rel="preload" as="image" href="assets/orb.png" />
+
   <style>
     :root {
       --bg: #05070A;
@@ -156,6 +166,16 @@
 
     .scene[data-scene='6'] h1 {
       font-size: clamp(29px, 5.44vw, 82px);
+    }
+
+    /* Scene 6 (INSIGHT) on mobile: orb sits at 35% screen height
+       (yOffsetFactor 0.15 in three.js view space). The headline is
+       translated downward so its centre lands at ~65% screen height,
+       leaving a clean gap between orb and text — no overlap on phones. */
+    @media (max-width: 768px) {
+      .scene[data-scene='6'] h1 {
+        transform: translateY(15vh);
+      }
     }
 
     .scene .sub {
@@ -825,23 +845,22 @@
       heightFactor: 1.15,
     });
     // The orb is the hero of Scene 6. Desktop keeps its original full-frame
-    // cover sizing. On mobile we shrink it to ~50% (using contain mode at half
-    // height) and lift it above the headline so it never overlaps the text.
+    // cover sizing. On mobile we shrink it and pin its centre to 35% screen
+    // height (yOffsetFactor 0.15 ⇒ centre at 50vh − 15vh = 35vh). The
+    // headline is translated down to ~65vh in CSS so the orb and text never
+    // overlap on phones.
     const bgOrb = createBgLayer('assets/orb.png', {
       renderOrder: -11,
-      // Mobile: 25% of viewport height (half the previous 50%) and lifted
-      // well above the centred headline so the glow never sits behind the
-      // text. Desktop keeps the original full-frame cover sizing.
       fit: IS_MOBILE ? 'contain' : 'cover',
       heightFactor: IS_MOBILE ? 0.25 : 1.00,
-      yOffsetFactor: IS_MOBILE ? 0.30 : 0.00,
+      yOffsetFactor: IS_MOBILE ? 0.15 : 0.00,
     });
     // Live-adjust orb sizing when the viewport mode flips so users who rotate
     // their device or resize a window get the corrected layout immediately.
     onMobileModeChange.push((mobile) => {
       bgOrb.fit = mobile ? 'contain' : 'cover';
       bgOrb.heightFactor = mobile ? 0.25 : 1.00;
-      bgOrb.yOffsetFactor = mobile ? 0.30 : 0.00;
+      bgOrb.yOffsetFactor = mobile ? 0.15 : 0.00;
       sizeBgLayers();
     });
     const bgLayers = [bgNeural, bgSilhouette, bgGrid, bgOrb];
@@ -1223,7 +1242,15 @@
       if (t < fiStart || t > foEnd) return 0;
       const a = smoothstep(fiStart, fiEnd, t);
       const b = 1.0 - smoothstep(foStart, foEnd, t);
-      return Math.max(0, Math.min(a, b));
+      let alpha = Math.max(0, Math.min(a, b));
+
+      // Scene 5 (AWARENESS) hold: force full opacity 1.0 across 0.78 → 0.87
+      // so the headline reads as solid white during the awareness moment
+      // instead of riding the soft fade-in/fade-out curves at half-opacity.
+      if (sceneIdx === 5 && t >= 0.78 && t <= 0.87) {
+        alpha = 1.0;
+      }
+      return alpha;
     }
 
     // ============================================================
@@ -1257,12 +1284,46 @@
         }
         if (i === SCENES - 1) { sIdx = SCENES - 1; local = 1; }
       }
+      // Default scene-blend logic: hold the formation for the first 40%
+      // of the scene, then morph into the next scene's target over the
+      // remaining 60%.
       const HOLD = 0.40;
       const lastIdx = sIdx === SCENES - 1;
-      const sBlendRaw = lastIdx ? 0 : clamp((local - HOLD) / (1 - HOLD), 0, 1);
-      const sBlend = easeInOut(sBlendRaw);
-      const A = targets[sIdx];
-      const B = targets[lastIdx ? sIdx : sIdx + 1];
+      let sBlend, A, B;
+      if (sIdx === 3) {
+        // Scene 3 (PATTERN, 0.45 → 0.60): the silhouette morph target
+        // must NOT activate during PATTERN. Particles stay locked on the
+        // circular loops (genPattern) for the entire scene — no morph
+        // toward genBehavior. The silhouette begins forming at t = 0.62,
+        // inside scene 4 (handled below).
+        A = targets[3];
+        B = targets[3];
+        sBlend = 0;
+      } else if (sIdx === 4) {
+        // Scene 4 (BEHAVIOR, 0.60 → 0.75) is now split into three slices
+        // because the silhouette morph was delayed to t = 0.62:
+        //   0.60 → 0.62  hold loops (no morph yet)
+        //   0.62 → 0.70  loops → silhouette (PATTERN → BEHAVIOR)
+        //   0.70 → 0.75  silhouette holds, then morphs to AWARENESS
+        if (t < 0.62) {
+          A = targets[3];
+          B = targets[3];
+          sBlend = 0;
+        } else if (t < 0.70) {
+          A = targets[3];
+          B = targets[4];
+          sBlend = easeInOut(clamp((t - 0.62) / (0.70 - 0.62), 0, 1));
+        } else {
+          A = targets[4];
+          B = targets[5];
+          sBlend = easeInOut(clamp((t - 0.72) / (0.75 - 0.72), 0, 1));
+        }
+      } else {
+        const sBlendRaw = lastIdx ? 0 : clamp((local - HOLD) / (1 - HOLD), 0, 1);
+        sBlend = easeInOut(sBlendRaw);
+        A = targets[sIdx];
+        B = targets[lastIdx ? sIdx : sIdx + 1];
+      }
 
       // ---- update particle positions, colors, sizes, opacity ----
       const posAttr = particleGeo.attributes.position.array;
@@ -1377,8 +1438,15 @@
         neuralResidue * smoothstep(0.45, 0.50, t) * (1.0 - smoothstep(0.60, 0.65, t));
       const aSil =
         0.22 * smoothstep(0.60, 0.65, t) * (1.0 - smoothstep(0.70, 0.75, t));
+      // Grid (scene 5 AWARENESS) is hard-clamped to exactly 0.12 across the
+      // entire 0.75 → 0.90 range, with only a tiny ramp at each boundary so
+      // the value snaps in/out cleanly. Previously the smoothstep peaked
+      // briefly at 0.12 between 0.80-0.85 and was lower at the edges, which
+      // looked like the grid wasn't rendering at all on slow mobile.
       const aGrid =
-        0.12 * smoothstep(0.75, 0.80, t) * (1.0 - smoothstep(0.85, 0.90, t));
+        0.12 *
+        smoothstep(0.745, 0.755, t) *
+        (1.0 - smoothstep(0.895, 0.905, t));
       const aOrb =
         orbPeak * smoothstep(0.90, 0.95, t);
       bgNeural.material.opacity     = aNeural;
