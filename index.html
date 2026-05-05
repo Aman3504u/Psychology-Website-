@@ -695,6 +695,97 @@
     camera.position.set(0, 0, 9);
     camera.lookAt(0, 0, 0);
 
+    // The camera carries a group of background image planes so they always fill
+    // the viewport regardless of camera dolly / drift. We need the camera in
+    // the scene graph for its children to render.
+    scene.add(camera);
+
+    // ============================================================
+    // Background image layers (additive, behind particles)
+    // ============================================================
+    // Four PNGs in /assets are mounted on planes parented to the camera at a
+    // local z of -8 (i.e. 8 units in front of it). The plane is sized to
+    // overshoot a 55deg vertical FOV at that distance so it always covers the
+    // visible frame and never reveals an edge. Each texture is pre-processed
+    // through a 2D canvas with a radial alpha falloff so the rectangular image
+    // edges never appear hard. Materials are MeshBasicMaterial with
+    // AdditiveBlending and depthWrite disabled; planes render before particles.
+
+    const BG_LAYER_DIST = 16;         // farther than the particle field, so layers stay behind it
+    const bgPlaneGeom = new THREE.PlaneGeometry(1, 1, 1, 1);
+
+    function makeVignetteTexture(image, repeat = false) {
+      // Draw image to a canvas and erase a soft radial mask near the edges so
+      // the rectangular bounds dissolve into the background.
+      const c = document.createElement('canvas');
+      c.width = image.naturalWidth || image.width;
+      c.height = image.naturalHeight || image.height;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(image, 0, 0, c.width, c.height);
+
+      const cx = c.width / 2;
+      const cy = c.height / 2;
+      const rOuter = Math.max(c.width, c.height) * 0.62;
+      const rInner = Math.max(c.width, c.height) * 0.32;
+      const grad = ctx.createRadialGradient(cx, cy, rInner, cx, cy, rOuter);
+      grad.addColorStop(0, 'rgba(0,0,0,0)');
+      grad.addColorStop(1, 'rgba(0,0,0,1)');
+
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = grad;
+      ctx.fillRect(0, 0, c.width, c.height);
+      ctx.globalCompositeOperation = 'source-over';
+
+      const tex = new THREE.CanvasTexture(c);
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      if (repeat) {
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+      }
+      return tex;
+    }
+
+    function createBgLayer(url, { repeat = false, renderOrder = -10 } = {}) {
+      const mat = new THREE.MeshBasicMaterial({
+        map: null,
+        color: 0xffffff,
+        transparent: true,
+        opacity: 0,
+        depthWrite: false,
+        depthTest: false,
+        blending: THREE.AdditiveBlending,
+      });
+      const mesh = new THREE.Mesh(bgPlaneGeom, mat);
+      mesh.position.set(0, 0, -BG_LAYER_DIST);
+      mesh.renderOrder = renderOrder;
+      camera.add(mesh);
+
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        mat.map = makeVignetteTexture(img, repeat);
+        mat.needsUpdate = true;
+      };
+      img.src = url;
+
+      return { mesh, material: mat };
+    }
+
+    const bgNeural     = createBgLayer('assets/neural.png',     { renderOrder: -14 });
+    const bgSilhouette = createBgLayer('assets/silhouette.png', { renderOrder: -13 });
+    const bgGrid       = createBgLayer('assets/grid.png',       { renderOrder: -12, repeat: true });
+    const bgOrb        = createBgLayer('assets/orb.png',        { renderOrder: -11 });
+    const bgLayers = [bgNeural.mesh, bgSilhouette.mesh, bgGrid.mesh, bgOrb.mesh];
+
+    function sizeBgLayers() {
+      const h = 2 * Math.tan((camera.fov * Math.PI / 180) / 2) * BG_LAYER_DIST * 1.35;
+      const w = h * camera.aspect * 1.15;
+      for (const mesh of bgLayers) mesh.scale.set(w, h, 1);
+    }
+    sizeBgLayers();
+
     // ---- particle geometry ---------------------------------------
     const positions = new Float32Array(NUM * 3);
     const startPositions = targets[0]; // begin at VOID
@@ -953,6 +1044,7 @@
       composer.setSize(w, h);
       camera.aspect = w / h;
       camera.updateProjectionMatrix();
+      sizeBgLayers();
       bloomPass.setSize(w, h);
     }
     window.addEventListener('resize', onResize);
@@ -1152,6 +1244,34 @@
 
       // ---- particle shader uniforms ----
       particleMat.uniforms.uTime.value = state.time;
+
+      // ---- background image layers per scene ----
+      // Single normalized t drives every layer's opacity. Hard cap 0.35 per
+      // spec; outside its assigned scene a layer sits at exactly 0 so it's
+      // invisible in scenes it isn't assigned to.
+      //   neural:  Scene 2 peak 0.18 over 25-45%, residue 0.10 thru 60%, off by 65%.
+      //   silhouette: Scene 4 peak 0.22 from 65-70%, off by 75%.
+      //   grid:    Scene 5 peak 0.20 from 80-85%, off by 90%.
+      //   orb:     Scene 6 peak 0.35 from 95% onward.
+      const aNeural =
+        0.18 * smoothstep(0.25, 0.30, t) * (1.0 - smoothstep(0.45, 0.50, t)) +
+        0.10 * smoothstep(0.45, 0.50, t) * (1.0 - smoothstep(0.60, 0.65, t));
+      const aSil =
+        0.22 * smoothstep(0.60, 0.65, t) * (1.0 - smoothstep(0.70, 0.75, t));
+      const aGrid =
+        0.20 * smoothstep(0.75, 0.80, t) * (1.0 - smoothstep(0.85, 0.90, t));
+      const aOrb =
+        0.35 * smoothstep(0.90, 0.95, t);
+      bgNeural.material.opacity     = aNeural;
+      bgSilhouette.material.opacity = aSil;
+      bgGrid.material.opacity       = aGrid;
+      bgOrb.material.opacity        = aOrb;
+
+      // Slow time-based UV.y offset on the grid texture so the bright scan
+      // line drifts vertically; independent of scroll, very slow.
+      if (bgGrid.material.map) {
+        bgGrid.material.map.offset.y -= 0.015 * dt;
+      }
 
       // ---- post: dynamic bloom intensity per scene ----
       // gentle in early scenes, modest swell through CONNECTION, small lift in
