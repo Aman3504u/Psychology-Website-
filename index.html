@@ -860,7 +860,7 @@
           // pulse position travels along the line
           float phase = mod(uTime * 0.32 + vOffset, 1.0);
           float dist  = abs(vAlong - phase);
-          float pulse = smoothstep(0.10, 0.0, dist) * 1.4;
+          float pulse = (1.0 - smoothstep(0.0, 0.10, dist)) * 1.4;
           // base trace
           float base  = 0.10;
           float a = (base + pulse) * vWeight * uActive;
