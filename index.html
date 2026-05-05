@@ -137,17 +137,6 @@
       text-align: center;
     }
 
-    .scene .label {
-      position: absolute;
-      top: 50%;
-      transform: translateY(-12vh);
-      font-size: 11px;
-      letter-spacing: 0.4em;
-      font-weight: 700;
-      color: rgba(255, 255, 255, 0.55);
-      text-transform: uppercase;
-    }
-
     .scene h1 {
       font-family: 'Epilogue', sans-serif;
       font-weight: 800;
@@ -313,22 +302,18 @@
     </section>
 
     <section class="scene" data-scene="1">
-      <span class="label">Emergence</span>
       <h1>Thoughts appear.<br />Uninvited.<br />Uncontrolled.</h1>
     </section>
 
     <section class="scene" data-scene="2">
-      <span class="label">Connection</span>
       <h1>Your brain<br />builds connections.</h1>
     </section>
 
     <section class="scene" data-scene="3">
-      <span class="label">Pattern</span>
       <h1>Repeat them — and<br />they become you.</h1>
     </section>
 
     <section class="scene" data-scene="4">
-      <span class="label">Behavior</span>
       <h1>Your patterns shape<br />your every move.</h1>
     </section>
 
@@ -396,6 +381,21 @@
     ];
 
     const SCENE_TAGS = ['VOID', 'EMERGENCE', 'CONNECTION', 'PATTERN', 'BEHAVIOR', 'AWARENESS', 'INSIGHT'];
+
+    // Viewport mode — single source of truth for mobile-specific tweaks.
+    // We re-evaluate this on resize so the experience adapts when the user
+    // rotates a tablet from landscape into portrait or back.
+    const MOBILE_QUERY = window.matchMedia('(max-width: 640px)');
+    let IS_MOBILE = MOBILE_QUERY.matches;
+    // Hooks invoked whenever the viewport mode flips between desktop/mobile.
+    // Used to re-apply orb sizing without requiring a page reload.
+    const onMobileModeChange = [];
+    MOBILE_QUERY.addEventListener('change', (ev) => {
+      IS_MOBILE = ev.matches;
+      for (const fn of onMobileModeChange) {
+        try { fn(IS_MOBILE); } catch (err) { /* non-fatal */ }
+      }
+    });
 
     // ---- helpers --------------------------------------------------
     const lerp = (a, b, t) => a + (b - a) * t;
@@ -516,19 +516,23 @@
     }
 
     function genBehavior(n) {
-      // Rough human silhouette outline (head + shoulders + torso)
-      const headPts = 0.40, torsoPts = 0.55, jitter = 0.05;
+      // Rough human silhouette outline (head + shoulders + torso + legs).
+      // On mobile we shrink the figure so the full body — from head to feet —
+      // fits inside a portrait viewport instead of getting cropped to the head.
+      const fit = IS_MOBILE ? 0.65 : 1.0;
+      const headPts = 0.30, torsoPts = 0.45, legsPts = 0.20, jitter = 0.05;
       const arr = new Float32Array(n * 3);
       const headN = Math.floor(n * headPts);
       const torsoN = Math.floor(n * torsoPts);
-      const noiseN = n - headN - torsoN;
+      const legsN = Math.floor(n * legsPts);
+      const noiseN = n - headN - torsoN - legsN;
 
       // Head ellipse
       for (let i = 0; i < headN; i++) {
         const a = (i / headN) * Math.PI * 2 + rand() * 0.05;
-        const rx = 0.95, ry = 1.20;
+        const rx = 0.85 * fit, ry = 1.05 * fit;
         arr[i * 3]     = Math.cos(a) * rx + (rand() - 0.5) * 0.07;
-        arr[i * 3 + 1] = 1.95 + Math.sin(a) * ry + (rand() - 0.5) * 0.07;
+        arr[i * 3 + 1] = (1.95 * fit) + Math.sin(a) * ry + (rand() - 0.5) * 0.07;
         arr[i * 3 + 2] = (rand() - 0.5) * 0.08;
       }
 
@@ -537,12 +541,12 @@
         [-0.55, 0.55],   // neck L
         [-1.35, 0.05],   // shoulder L upper
         [-2.05, -0.25],  // shoulder L outer
-        [-2.05, -2.85],  // arm L bottom
-        [-1.30, -2.95],  // bottom L
-        [-0.30, -2.85],  // bottom mid L
-        [ 0.30, -2.85],  // bottom mid R
-        [ 1.30, -2.95],  // bottom R
-        [ 2.05, -2.85],  // arm R bottom
+        [-2.05, -1.80],  // arm L bottom (now meets hip line, not feet)
+        [-1.10, -1.80],  // hip L
+        [-0.30, -1.80],  // bottom mid L
+        [ 0.30, -1.80],  // bottom mid R
+        [ 1.10, -1.80],  // hip R
+        [ 2.05, -1.80],  // arm R bottom
         [ 2.05, -0.25],  // shoulder R outer
         [ 1.35,  0.05],  // shoulder R upper
         [ 0.55,  0.55],  // neck R
@@ -554,17 +558,34 @@
         const f = tt - idx;
         const p1 = path[idx];
         const p2 = path[Math.min(idx + 1, path.length - 1)];
-        const x = p1[0] * (1 - f) + p2[0] * f;
-        const y = p1[1] * (1 - f) + p2[1] * f;
+        const x = (p1[0] * (1 - f) + p2[0] * f) * fit;
+        const y = (p1[1] * (1 - f) + p2[1] * f) * fit;
         const o = headN + i;
         arr[o * 3]     = x + (rand() - 0.5) * jitter;
         arr[o * 3 + 1] = y + (rand() - 0.5) * jitter;
         arr[o * 3 + 2] = (rand() - 0.5) * 0.08;
       }
 
+      // Legs — two parallel columns from hip line down to feet so the morph
+      // forms a full body rather than collapsing into a head-only blob.
+      const legSpan = 1.95 * fit; // distance from hip to feet in target space
+      const hipY = -1.80 * fit;
+      const feetY = hipY - legSpan;
+      const halfHip = 0.55 * fit;
+      for (let i = 0; i < legsN; i++) {
+        const f = i / Math.max(1, legsN - 1);
+        const side = i % 2 === 0 ? -1 : 1;
+        const baseX = side * (0.20 + halfHip * 0.55) + (rand() - 0.5) * 0.08;
+        const y = lerp(hipY, feetY, f) + (rand() - 0.5) * jitter;
+        const o = headN + torsoN + i;
+        arr[o * 3]     = baseX;
+        arr[o * 3 + 1] = y;
+        arr[o * 3 + 2] = (rand() - 0.5) * 0.08;
+      }
+
       // Sprinkle ambient particles for atmosphere
       for (let i = 0; i < noiseN; i++) {
-        const o = headN + torsoN + i;
+        const o = headN + torsoN + legsN + i;
         arr[o * 3]     = (rand() - 0.5) * 8;
         arr[o * 3 + 1] = (rand() - 0.5) * 7;
         arr[o * 3 + 2] = (rand() - 0.5) * 2.5;
@@ -818,7 +839,7 @@
     const bgSilhouette = createBgLayer('assets/silhouette.png', {
       renderOrder: -13,
       fit: 'contain',
-      heightFactor: 0.70,
+      heightFactor: 0.65,
       yOffsetFactor: 0.00,
     });
     const bgGrid = createBgLayer('assets/grid.png', {
@@ -827,10 +848,22 @@
       fit: 'cover',
       heightFactor: 1.15,
     });
+    // The orb is the hero of Scene 6. Desktop keeps its original full-frame
+    // cover sizing. On mobile we shrink it to ~50% (using contain mode at half
+    // height) and lift it above the headline so it never overlaps the text.
     const bgOrb = createBgLayer('assets/orb.png', {
       renderOrder: -11,
-      fit: 'cover',
-      heightFactor: 1.00,
+      fit: IS_MOBILE ? 'contain' : 'cover',
+      heightFactor: IS_MOBILE ? 0.50 : 1.00,
+      yOffsetFactor: IS_MOBILE ? 0.22 : 0.00,
+    });
+    // Live-adjust orb sizing when the viewport mode flips so users who rotate
+    // their device or resize a window get the corrected layout immediately.
+    onMobileModeChange.push((mobile) => {
+      bgOrb.fit = mobile ? 'contain' : 'cover';
+      bgOrb.heightFactor = mobile ? 0.50 : 1.00;
+      bgOrb.yOffsetFactor = mobile ? 0.22 : 0.00;
+      sizeBgLayers();
     });
     const bgLayers = [bgNeural, bgSilhouette, bgGrid, bgOrb];
 
@@ -1182,18 +1215,33 @@
     const progressFill = document.getElementById('progress-fill');
 
     // Each scene's text fades in over ~3% scroll, holds, fades out over ~2%.
-    // We expand each scene's visible window slightly outside its [s,e] range so
-    // adjacent scenes cross-fade across the boundary instead of cutting to black.
+    // On desktop we let adjacent scenes overlap slightly across the boundary
+    // for a soft cross-fade. On mobile we make the fade-out and fade-in ranges
+    // strictly disjoint with a small gap so the previous headline is fully
+    // invisible (opacity 0) before the next one starts fading in — fixes the
+    // Scene 0 → Scene 1 ghost-overlap issue on small screens.
     const FADE_IN  = 0.022;  // % of total scroll
     const FADE_OUT = 0.018;
+    const MOBILE_GAP = 0.012; // dead zone between scenes on mobile (no text)
     function sceneTextAlpha(sceneIdx, t) {
       const [s, e] = SCENE_RANGES[sceneIdx];
-      // Scene 0: visible immediately at t=0 (title card)
-      const fiStart = sceneIdx === 0 ? -1 : s - FADE_IN * 0.5;
-      const fiEnd   = sceneIdx === 0 ?  0 : s + FADE_IN * 0.5;
-      // Last scene: stay visible to t=1
-      const foStart = sceneIdx === SCENES - 1 ? 1.5 : e - FADE_OUT * 0.5;
-      const foEnd   = sceneIdx === SCENES - 1 ? 2.0 : e + FADE_OUT * 0.5;
+      let fiStart, fiEnd, foStart, foEnd;
+      if (IS_MOBILE) {
+        // Disjoint windows: scene fully fades out at e - GAP/2, next scene
+        // begins fade-in at e + GAP/2. No two scenes are visible at once.
+        const gapHalf = MOBILE_GAP * 0.5;
+        fiStart = sceneIdx === 0 ? -1 : s + gapHalf;
+        fiEnd   = sceneIdx === 0 ?  0 : s + gapHalf + FADE_IN;
+        foStart = sceneIdx === SCENES - 1 ? 1.5 : e - gapHalf - FADE_OUT;
+        foEnd   = sceneIdx === SCENES - 1 ? 2.0 : e - gapHalf;
+      } else {
+        // Desktop: small symmetric overlap around the boundary for a smooth
+        // cross-fade between consecutive headlines.
+        fiStart = sceneIdx === 0 ? -1 : s - FADE_IN * 0.5;
+        fiEnd   = sceneIdx === 0 ?  0 : s + FADE_IN * 0.5;
+        foStart = sceneIdx === SCENES - 1 ? 1.5 : e - FADE_OUT * 0.5;
+        foEnd   = sceneIdx === SCENES - 1 ? 2.0 : e + FADE_OUT * 0.5;
+      }
 
       if (t < fiStart || t > foEnd) return 0;
       const a = smoothstep(fiStart, fiEnd, t);
@@ -1339,19 +1387,23 @@
       // Single normalized t drives every layer's opacity. Hard cap 0.35 per
       // spec; outside its assigned scene a layer sits at exactly 0 so it's
       // invisible in scenes it isn't assigned to.
-      //   neural:  Scene 2 peak 0.18 over 25-45%, residue 0.10 thru 60%, off by 65%.
+      //   neural:     Scene 2 peak (desktop 0.18, mobile 0.12), residue ~0.10
+      //               thru 60%, off by 65%.
       //   silhouette: Scene 4 peak 0.22 from 65-70%, off by 75%.
-      //   grid:    Scene 5 peak 0.15 from 80-85%, off by 90%.
-      //   orb:     Scene 6 peak 0.35 from 95% onward.
+      //   grid:       Scene 5 capped at 0.12 from 80-85%, off by 90%.
+      //   orb:        Scene 6 peak (desktop 0.35, mobile 0.25) from 95% onward.
+      const neuralPeak = IS_MOBILE ? 0.12 : 0.18;
+      const neuralResidue = IS_MOBILE ? 0.07 : 0.10;
+      const orbPeak = IS_MOBILE ? 0.25 : 0.35;
       const aNeural =
-        0.18 * smoothstep(0.25, 0.30, t) * (1.0 - smoothstep(0.45, 0.50, t)) +
-        0.10 * smoothstep(0.45, 0.50, t) * (1.0 - smoothstep(0.60, 0.65, t));
+        neuralPeak    * smoothstep(0.25, 0.30, t) * (1.0 - smoothstep(0.45, 0.50, t)) +
+        neuralResidue * smoothstep(0.45, 0.50, t) * (1.0 - smoothstep(0.60, 0.65, t));
       const aSil =
         0.22 * smoothstep(0.60, 0.65, t) * (1.0 - smoothstep(0.70, 0.75, t));
       const aGrid =
-        0.15 * smoothstep(0.75, 0.80, t) * (1.0 - smoothstep(0.85, 0.90, t));
+        0.12 * smoothstep(0.75, 0.80, t) * (1.0 - smoothstep(0.85, 0.90, t));
       const aOrb =
-        0.35 * smoothstep(0.90, 0.95, t);
+        orbPeak * smoothstep(0.90, 0.95, t);
       bgNeural.material.opacity     = aNeural;
       bgSilhouette.material.opacity = aSil;
       bgGrid.material.opacity       = aGrid;
