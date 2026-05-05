@@ -1,0 +1,1198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>The Mind Is Not Quiet — A Cinematic Sequence</title>
+  <meta name="description" content="A scroll-driven cinematic exploration of the internal dialogue. High-contrast, uncompromising depth." />
+
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link
+    href="https://fonts.googleapis.com/css2?family=Epilogue:wght@300;400;700;800;900&display=swap"
+    rel="stylesheet"
+  />
+
+  <style>
+    :root {
+      --bg: #05070A;
+      --fg: #ffffff;
+      --muted: #70757a;
+      --line: rgba(255, 255, 255, 0.08);
+      --accent-blue: #4d7cff;
+      --accent-violet: #8b5cff;
+    }
+
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    html,
+    body {
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Epilogue', system-ui, sans-serif;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      overflow-x: hidden;
+    }
+
+    body {
+      min-height: 100vh;
+    }
+
+    /* The scroll spacer determines total scrollable height.
+       Height is set in JS so it equals 7 scenes worth of viewport. */
+    #scroll-spacer {
+      width: 100%;
+      pointer-events: none;
+    }
+
+    #stage {
+      position: fixed;
+      inset: 0;
+      width: 100vw;
+      height: 100vh;
+      z-index: 1;
+      pointer-events: none;
+    }
+
+    #canvas {
+      position: absolute;
+      inset: 0;
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    /* Vignette – subtle radial darkening to focus the eye on center */
+    #vignette {
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      background: radial-gradient(
+        ellipse at center,
+        rgba(0, 0, 0, 0) 40%,
+        rgba(0, 0, 0, 0.45) 85%,
+        rgba(0, 0, 0, 0.75) 100%
+      );
+      z-index: 2;
+    }
+
+    /* Brand mark — top center, persistent */
+    #brand {
+      position: fixed;
+      top: clamp(28px, 5vh, 56px);
+      left: 0;
+      right: 0;
+      text-align: center;
+      z-index: 30;
+      pointer-events: none;
+      mix-blend-mode: difference;
+    }
+    #brand .mark {
+      font-size: 12px;
+      letter-spacing: 0.35em;
+      font-weight: 800;
+      color: #fff;
+      text-transform: uppercase;
+    }
+
+    /* Scene overlay container — fixed, scenes layered on top of each other */
+    .scenes {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      pointer-events: none;
+    }
+
+    .scene {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      will-change: opacity, transform;
+      padding: 0 6vw;
+      text-align: center;
+    }
+
+    .scene .label {
+      position: absolute;
+      top: 50%;
+      transform: translateY(-12vh);
+      font-size: 11px;
+      letter-spacing: 0.4em;
+      font-weight: 700;
+      color: rgba(255, 255, 255, 0.55);
+      text-transform: uppercase;
+    }
+
+    .scene h1 {
+      font-family: 'Epilogue', sans-serif;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #fff;
+      line-height: 0.95;
+      letter-spacing: -0.02em;
+      font-size: clamp(34px, 6.4vw, 96px);
+      max-width: 1100px;
+    }
+
+    .scene[data-scene='0'] h1 {
+      font-size: clamp(40px, 8vw, 132px);
+      letter-spacing: -0.04em;
+      line-height: 0.92;
+    }
+
+    .scene .sub {
+      margin-top: 28px;
+      font-size: clamp(13px, 1.1vw, 16px);
+      letter-spacing: 0.04em;
+      color: rgba(255, 255, 255, 0.55);
+      font-weight: 400;
+      max-width: 540px;
+      line-height: 1.5;
+    }
+
+    /* Footer */
+    #footer {
+      position: fixed;
+      bottom: 22px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      color: rgba(255, 255, 255, 0.32);
+      z-index: 25;
+      pointer-events: none;
+      font-weight: 400;
+      text-transform: uppercase;
+    }
+
+    /* Progress bar */
+    #progress {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: 1px;
+      background: rgba(255, 255, 255, 0.08);
+      z-index: 26;
+      pointer-events: none;
+    }
+    #progress-fill {
+      height: 100%;
+      width: 0%;
+      background: #fff;
+      transform-origin: left center;
+      will-change: width;
+    }
+
+    /* Scroll hint — visible only at very top */
+    #hint {
+      position: fixed;
+      bottom: 60px;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 10px;
+      letter-spacing: 0.4em;
+      color: rgba(255, 255, 255, 0.55);
+      z-index: 27;
+      pointer-events: none;
+      transition: opacity 0.6s ease;
+      text-transform: uppercase;
+    }
+    .hint-dot {
+      display: inline-block;
+      width: 1px;
+      height: 22px;
+      background: rgba(255, 255, 255, 0.45);
+      margin: 8px auto 0;
+      vertical-align: top;
+      animation: dropline 1.8s ease-in-out infinite;
+      transform-origin: top center;
+    }
+    @keyframes dropline {
+      0%   { transform: scaleY(0.3); opacity: 0.2; }
+      50%  { transform: scaleY(1);   opacity: 1; }
+      100% { transform: scaleY(0.3); opacity: 0.2; }
+    }
+
+    /* Scene index — small caps tag bottom-left during sequence */
+    #scene-index {
+      position: fixed;
+      bottom: 24px;
+      left: 36px;
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      color: rgba(255, 255, 255, 0.55);
+      z-index: 27;
+      pointer-events: none;
+      font-weight: 700;
+      text-transform: uppercase;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+    #scene-tag {
+      position: fixed;
+      bottom: 24px;
+      right: 36px;
+      font-size: 10px;
+      letter-spacing: 0.3em;
+      color: rgba(255, 255, 255, 0.55);
+      z-index: 27;
+      pointer-events: none;
+      font-weight: 700;
+      text-transform: uppercase;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    /* Reduced motion fallback */
+    @media (prefers-reduced-motion: reduce) {
+      .hint-dot { animation: none; }
+    }
+
+    /* Mobile typography tightening */
+    @media (max-width: 640px) {
+      .scene h1 { font-size: clamp(28px, 9vw, 56px); }
+      .scene[data-scene='0'] h1 { font-size: clamp(34px, 11vw, 64px); }
+      #scene-index, #scene-tag { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <!-- 3D stage -->
+  <div id="stage" aria-hidden="true">
+    <canvas id="canvas"></canvas>
+    <div id="vignette"></div>
+  </div>
+
+  <!-- Scroll spacer establishes total scroll length -->
+  <div id="scroll-spacer"></div>
+
+  <!-- Persistent brand mark -->
+  <header id="brand">
+    <span class="mark">QUIET</span>
+  </header>
+
+  <!-- Scenes — layered text overlays -->
+  <div class="scenes" id="scenes">
+    <section class="scene" data-scene="0">
+      <h1>The mind is<br />not quiet</h1>
+      <p class="sub">A cinematic exploration of the internal dialogue. High-contrast, uncompromising depth.</p>
+    </section>
+
+    <section class="scene" data-scene="1">
+      <span class="label">Emergence</span>
+      <h1>Thoughts appear.<br />Uninvited.<br />Uncontrolled.</h1>
+    </section>
+
+    <section class="scene" data-scene="2">
+      <span class="label">Connection</span>
+      <h1>Your brain<br />builds connections.</h1>
+    </section>
+
+    <section class="scene" data-scene="3">
+      <span class="label">Pattern</span>
+      <h1>Repeat them — and<br />they become you.</h1>
+    </section>
+
+    <section class="scene" data-scene="4">
+      <span class="label">Behavior</span>
+      <h1>Your patterns shape<br />your every move.</h1>
+    </section>
+
+    <section class="scene" data-scene="5">
+      <span class="label">Awareness</span>
+      <h1>What if you could<br />see the system?</h1>
+    </section>
+
+    <section class="scene" data-scene="6">
+      <span class="label">Insight</span>
+      <h1>Change the pattern.<br />Change your life.</h1>
+    </section>
+  </div>
+
+  <!-- Scene index / tag (filmic metadata) -->
+  <div id="scene-index">SCENE 00</div>
+  <div id="scene-tag">VOID</div>
+
+  <!-- Scroll hint -->
+  <div id="hint">SCROLL<br /><span class="hint-dot"></span></div>
+
+  <!-- Footer + progress -->
+  <footer id="footer">© 2024 The Mind Is Not Quiet</footer>
+  <div id="progress"><div id="progress-fill"></div></div>
+
+  <!-- GSAP & ScrollTrigger -->
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/ScrollTrigger.min.js"></script>
+
+  <!-- Three.js as ES module via importmap -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+    import { RenderPass }     from 'three/addons/postprocessing/RenderPass.js';
+    import { UnrealBloomPass }from 'three/addons/postprocessing/UnrealBloomPass.js';
+    import { ShaderPass }     from 'three/addons/postprocessing/ShaderPass.js';
+    import { OutputPass }     from 'three/addons/postprocessing/OutputPass.js';
+
+    /* ============================================================
+       THE MIND IS NOT QUIET — single normalized scroll value (t)
+       drives every system. No subsystem animates independently.
+       ============================================================ */
+
+    const NUM = 500;            // total particle slots; ~80 visible at start, peaks ~400
+    const SCENES = 7;           // 0..6
+    const PAIRS_PER_PARTICLE = 4; // average connections per particle
+    const MAX_PAIRS = NUM * PAIRS_PER_PARTICLE;
+
+    // Scene scroll ranges (start, end) per spec
+    const SCENE_RANGES = [
+      [0.00, 0.10], // 0 VOID
+      [0.10, 0.25], // 1 EMERGENCE
+      [0.25, 0.45], // 2 CONNECTION
+      [0.45, 0.60], // 3 PATTERN
+      [0.60, 0.75], // 4 BEHAVIOR
+      [0.75, 0.90], // 5 AWARENESS
+      [0.90, 1.00], // 6 INSIGHT
+    ];
+
+    const SCENE_TAGS = ['VOID', 'EMERGENCE', 'CONNECTION', 'PATTERN', 'BEHAVIOR', 'AWARENESS', 'INSIGHT'];
+
+    // ---- helpers --------------------------------------------------
+    const lerp = (a, b, t) => a + (b - a) * t;
+    const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+    const smoothstep = (a, b, x) => {
+      const t = clamp((x - a) / (b - a), 0, 1);
+      return t * t * (3 - 2 * t);
+    };
+    const easeInOut = (t) => t * t * (3 - 2 * t);
+
+    // Deterministic RNG so visuals are stable across reloads
+    function mulberry32(seed) {
+      return function () {
+        let t = (seed += 0x6d2b79f5);
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+      };
+    }
+    const rand = mulberry32(0xC1FE5A);
+
+    // ---- target generators ---------------------------------------
+    function genVoid(n) {
+      // Sparse far-flung sphere
+      const arr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const u = rand(), v = rand();
+        const theta = 2 * Math.PI * u, phi = Math.acos(2 * v - 1);
+        const r = 6 + rand() * 4;
+        arr[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+        arr[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.6;
+        arr[i * 3 + 2] = r * Math.cos(phi);
+      }
+      return arr;
+    }
+
+    function genEmergence(n) {
+      // Wide chaotic cloud — peak particle count, scattered organic
+      const arr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const r = Math.cbrt(rand()) * 5.2;
+        const theta = rand() * Math.PI * 2;
+        const phi = Math.acos(2 * rand() - 1);
+        arr[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+        arr[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta) * 0.7;
+        arr[i * 3 + 2] = r * Math.cos(phi) * 0.85;
+      }
+      return arr;
+    }
+
+    function genConnection(n) {
+      // Network-like clustering hubs
+      const HUBS = 7;
+      const hubs = [];
+      for (let h = 0; h < HUBS; h++) {
+        hubs.push([
+          (rand() - 0.5) * 7,
+          (rand() - 0.5) * 4.2,
+          (rand() - 0.5) * 3.5,
+        ]);
+      }
+      const arr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const h = hubs[i % HUBS];
+        const spread = 1.0 + rand() * 1.0;
+        // gaussian-ish around hub via sum of randoms
+        const dx = ((rand() + rand() + rand()) / 3 - 0.5) * 2 * spread;
+        const dy = ((rand() + rand() + rand()) / 3 - 0.5) * 2 * spread;
+        const dz = ((rand() + rand() + rand()) / 3 - 0.5) * 2 * spread * 0.6;
+        arr[i * 3]     = h[0] + dx;
+        arr[i * 3 + 1] = h[1] + dy;
+        arr[i * 3 + 2] = h[2] + dz;
+      }
+      return arr;
+    }
+
+    function genPattern(n) {
+      // Several circular loops at various tilts (recursion / habit loops)
+      const RINGS = 5;
+      const ringConfigs = [];
+      for (let r = 0; r < RINGS; r++) {
+        ringConfigs.push({
+          cx: (rand() - 0.5) * 2.5,
+          cy: (rand() - 0.5) * 1.8,
+          cz: (rand() - 0.5) * 1.5,
+          radius: 1.6 + rand() * 1.7,
+          tilt: rand() * Math.PI,
+          yaw: rand() * Math.PI * 2,
+          azimuth: rand() * Math.PI,
+        });
+      }
+      const arr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const r = ringConfigs[i % RINGS];
+        const angle = (i / n) * Math.PI * 2 * RINGS + r.yaw;
+        let x = Math.cos(angle) * r.radius;
+        let y = Math.sin(angle) * r.radius;
+        let z = (rand() - 0.5) * 0.08;
+
+        // tilt around X
+        const ct = Math.cos(r.tilt), st = Math.sin(r.tilt);
+        let ny = y * ct - z * st;
+        let nz = y * st + z * ct;
+        y = ny; z = nz;
+
+        // yaw around Y
+        const ca = Math.cos(r.azimuth), sa = Math.sin(r.azimuth);
+        const nx = x * ca + z * sa;
+        nz = -x * sa + z * ca;
+        x = nx;
+
+        arr[i * 3]     = r.cx + x;
+        arr[i * 3 + 1] = r.cy + y;
+        arr[i * 3 + 2] = r.cz + z;
+      }
+      return arr;
+    }
+
+    function genBehavior(n) {
+      // Rough human silhouette outline (head + shoulders + torso)
+      const headPts = 0.40, torsoPts = 0.55, jitter = 0.05;
+      const arr = new Float32Array(n * 3);
+      const headN = Math.floor(n * headPts);
+      const torsoN = Math.floor(n * torsoPts);
+      const noiseN = n - headN - torsoN;
+
+      // Head ellipse
+      for (let i = 0; i < headN; i++) {
+        const a = (i / headN) * Math.PI * 2 + rand() * 0.05;
+        const rx = 0.95, ry = 1.20;
+        arr[i * 3]     = Math.cos(a) * rx + (rand() - 0.5) * 0.07;
+        arr[i * 3 + 1] = 1.95 + Math.sin(a) * ry + (rand() - 0.5) * 0.07;
+        arr[i * 3 + 2] = (rand() - 0.5) * 0.08;
+      }
+
+      // Torso path (closed-ish silhouette)
+      const path = [
+        [-0.55, 0.55],   // neck L
+        [-1.35, 0.05],   // shoulder L upper
+        [-2.05, -0.25],  // shoulder L outer
+        [-2.05, -2.85],  // arm L bottom
+        [-1.30, -2.95],  // bottom L
+        [-0.30, -2.85],  // bottom mid L
+        [ 0.30, -2.85],  // bottom mid R
+        [ 1.30, -2.95],  // bottom R
+        [ 2.05, -2.85],  // arm R bottom
+        [ 2.05, -0.25],  // shoulder R outer
+        [ 1.35,  0.05],  // shoulder R upper
+        [ 0.55,  0.55],  // neck R
+      ];
+      const segLen = path.length - 1;
+      for (let i = 0; i < torsoN; i++) {
+        const tt = (i / torsoN) * segLen;
+        const idx = Math.floor(tt);
+        const f = tt - idx;
+        const p1 = path[idx];
+        const p2 = path[Math.min(idx + 1, path.length - 1)];
+        const x = p1[0] * (1 - f) + p2[0] * f;
+        const y = p1[1] * (1 - f) + p2[1] * f;
+        const o = headN + i;
+        arr[o * 3]     = x + (rand() - 0.5) * jitter;
+        arr[o * 3 + 1] = y + (rand() - 0.5) * jitter;
+        arr[o * 3 + 2] = (rand() - 0.5) * 0.08;
+      }
+
+      // Sprinkle ambient particles for atmosphere
+      for (let i = 0; i < noiseN; i++) {
+        const o = headN + torsoN + i;
+        arr[o * 3]     = (rand() - 0.5) * 8;
+        arr[o * 3 + 1] = (rand() - 0.5) * 7;
+        arr[o * 3 + 2] = (rand() - 0.5) * 2.5;
+      }
+      return arr;
+    }
+
+    function genAwareness(n) {
+      // 3D lattice — "see the system" — structured grid
+      const side = Math.ceil(Math.cbrt(n));
+      const spacing = 0.78;
+      const arr = new Float32Array(n * 3);
+      for (let i = 0; i < n; i++) {
+        const ix = i % side;
+        const iy = Math.floor(i / side) % side;
+        const iz = Math.floor(i / (side * side)) % side;
+        arr[i * 3]     = (ix - side / 2) * spacing + (rand() - 0.5) * 0.05;
+        arr[i * 3 + 1] = (iy - side / 2) * spacing * 0.7 + (rand() - 0.5) * 0.05;
+        arr[i * 3 + 2] = (iz - side / 2) * spacing * 0.7 + (rand() - 0.5) * 0.05;
+      }
+      return arr;
+    }
+
+    function genInsight(n) {
+      // Particles converge toward a single luminous core sitting behind the
+      // viewer's z=0 plane so the headline reads cleanly above the glow.
+      const arr = new Float32Array(n * 3);
+      const zCenter = -2.5;
+      for (let i = 0; i < n; i++) {
+        // bias particles slightly forward of center for parallax
+        const r = 0.05 + Math.pow(rand(), 2.5) * 0.55;
+        const theta = rand() * Math.PI * 2;
+        const phi = Math.acos(2 * rand() - 1);
+        arr[i * 3]     = r * Math.sin(phi) * Math.cos(theta);
+        arr[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+        arr[i * 3 + 2] = zCenter + r * Math.cos(phi);
+      }
+      return arr;
+    }
+
+    // Build all 7 target arrays
+    const targets = [
+      genVoid(NUM),
+      genEmergence(NUM),
+      genConnection(NUM),
+      genPattern(NUM),
+      genBehavior(NUM),
+      genAwareness(NUM),
+      genInsight(NUM),
+    ];
+
+    // ---- per-particle profiles (opacity per scene) ---------------
+    // Particle "roles" for population dynamics:
+    //   80 core      — visible across all scenes (with subtle dimming)
+    //   320 burst    — peaks at scene 1 EMERGENCE, fades by scene 5
+    //   100 late     — fades in at scene 2, persists to end
+    const opacityProfiles = new Float32Array(NUM * SCENES);
+
+    function setProfile(i, vals) {
+      for (let s = 0; s < SCENES; s++) opacityProfiles[i * SCENES + s] = vals[s];
+    }
+
+    for (let i = 0; i < NUM; i++) {
+      const r = i / NUM;
+      const role = i < 80 ? 'core' : i < 400 ? 'burst' : 'late';
+      const noise = 0.85 + rand() * 0.3;
+      let vals;
+      if (role === 'core') {
+        vals = [0.55, 0.85, 0.85, 0.85, 0.80, 0.85, 1.00];
+      } else if (role === 'burst') {
+        // Peak at scene 1, decay outward
+        vals = [
+          0.10 + rand() * 0.10,
+          0.95 + rand() * 0.05,
+          0.85 + rand() * 0.10,
+          0.70 + rand() * 0.15,
+          0.55 + rand() * 0.20,
+          0.30 + rand() * 0.20,
+          0.10 + rand() * 0.10,
+        ];
+      } else { // late
+        vals = [
+          0.0,
+          0.05 + rand() * 0.10,
+          0.55 + rand() * 0.20,
+          0.80 + rand() * 0.15,
+          0.85 + rand() * 0.10,
+          0.95,
+          0.85,
+        ];
+      }
+      for (let s = 0; s < SCENES; s++) vals[s] *= noise;
+      setProfile(i, vals);
+    }
+
+    // ---- per-particle base colors (electric blue / violet) -------
+    const baseColors = new Float32Array(NUM * 3);
+    const cBlue   = new THREE.Color('#5a8cff');
+    const cViolet = new THREE.Color('#a06bff');
+    const cWhite  = new THREE.Color('#e9eeff');
+    for (let i = 0; i < NUM; i++) {
+      const m = rand();
+      const c = m < 0.55 ? cBlue : (m < 0.9 ? cViolet : cWhite);
+      // small per-particle warmth shift
+      const tint = new THREE.Color().copy(c).offsetHSL((rand() - 0.5) * 0.04, 0, (rand() - 0.5) * 0.08);
+      baseColors[i * 3]     = tint.r;
+      baseColors[i * 3 + 1] = tint.g;
+      baseColors[i * 3 + 2] = tint.b;
+    }
+
+    // ---- per-particle sizes --------------------------------------
+    const baseSizes = new Float32Array(NUM);
+    for (let i = 0; i < NUM; i++) baseSizes[i] = 0.6 + rand() * 1.8;
+
+    // ============================================================
+    // Three.js setup
+    // ============================================================
+    const canvas = document.getElementById('canvas');
+    const renderer = new THREE.WebGLRenderer({
+      canvas,
+      antialias: true,
+      alpha: true,
+      powerPreference: 'high-performance',
+    });
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setClearColor(0x05070a, 1);
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+
+    const scene = new THREE.Scene();
+    scene.fog = new THREE.FogExp2(0x05070a, 0.045);
+
+    const camera = new THREE.PerspectiveCamera(
+      55,
+      window.innerWidth / window.innerHeight,
+      0.1,
+      100
+    );
+    camera.position.set(0, 0, 9);
+    camera.lookAt(0, 0, 0);
+
+    // ---- particle geometry ---------------------------------------
+    const positions = new Float32Array(NUM * 3);
+    const startPositions = targets[0]; // begin at VOID
+    positions.set(startPositions);
+
+    const opacities = new Float32Array(NUM);
+    const colors = new Float32Array(NUM * 3);
+    const sizes = new Float32Array(NUM);
+    colors.set(baseColors);
+    sizes.set(baseSizes);
+
+    const particleGeo = new THREE.BufferGeometry();
+    particleGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    particleGeo.setAttribute('aColor',   new THREE.BufferAttribute(colors, 3));
+    particleGeo.setAttribute('aSize',    new THREE.BufferAttribute(sizes, 1));
+    particleGeo.setAttribute('aOpacity', new THREE.BufferAttribute(opacities, 1));
+
+    const particleMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime: { value: 0 },
+        uPixelRatio: { value: renderer.getPixelRatio() },
+        uSizeScale: { value: 70.0 },
+      },
+      vertexShader: /* glsl */`
+        attribute vec3  aColor;
+        attribute float aSize;
+        attribute float aOpacity;
+        uniform float uTime;
+        uniform float uPixelRatio;
+        uniform float uSizeScale;
+        varying vec3  vColor;
+        varying float vOpacity;
+        void main() {
+          vec4 mv = modelViewMatrix * vec4(position, 1.0);
+          gl_Position = projectionMatrix * mv;
+          // size attenuation by depth
+          float d = -mv.z;
+          gl_PointSize = aSize * uSizeScale * uPixelRatio / max(d, 0.5);
+          vColor = aColor;
+          vOpacity = aOpacity;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        varying vec3  vColor;
+        varying float vOpacity;
+        void main() {
+          vec2 c = gl_PointCoord - 0.5;
+          float r = length(c) * 2.0;
+          if (r > 1.0) discard;
+          // soft halo + bright core
+          float core = pow(1.0 - r, 2.5);
+          float halo = pow(1.0 - r, 0.8) * 0.35;
+          float a = (core + halo) * vOpacity;
+          gl_FragColor = vec4(vColor * (0.7 + core * 1.2), a);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const points = new THREE.Points(particleGeo, particleMat);
+    scene.add(points);
+
+    // ---- connection pairs ---------------------------------------
+    // Precompute pair candidates from CONNECTION-scene targets so the
+    // graph is meaningful when connections matter most.
+    const connectionTargets = targets[2];
+    const pairs = [];
+    {
+      // Build a flat list of indices and find K nearest neighbors via brute
+      // force (NUM=500 → 250k checks; fine for one-time init).
+      const K = PAIRS_PER_PARTICLE;
+      for (let i = 0; i < NUM; i++) {
+        const ix = connectionTargets[i*3];
+        const iy = connectionTargets[i*3+1];
+        const iz = connectionTargets[i*3+2];
+        // gather distances to others
+        const dists = new Array(NUM);
+        for (let j = 0; j < NUM; j++) {
+          if (j === i) { dists[j] = 1e9; continue; }
+          const dx = ix - connectionTargets[j*3];
+          const dy = iy - connectionTargets[j*3+1];
+          const dz = iz - connectionTargets[j*3+2];
+          dists[j] = dx*dx + dy*dy + dz*dz;
+        }
+        // pick K smallest
+        const picked = new Set();
+        for (let k = 0; k < K; k++) {
+          let best = -1; let bestD = 1e9;
+          for (let j = 0; j < NUM; j++) {
+            if (j === i || picked.has(j)) continue;
+            if (dists[j] < bestD) { bestD = dists[j]; best = j; }
+          }
+          if (best >= 0) {
+            picked.add(best);
+            // Avoid adding duplicate undirected pair (keep i<best)
+            const a = Math.min(i, best);
+            const b = Math.max(i, best);
+            pairs.push([a, b]);
+          }
+        }
+      }
+      // dedupe
+      const seen = new Set();
+      const dedup = [];
+      for (const [a, b] of pairs) {
+        const key = a * NUM + b;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedup.push([a, b]);
+      }
+      pairs.length = 0;
+      pairs.push(...dedup);
+    }
+    const PAIR_COUNT = pairs.length;
+
+    // Lines: 2 vertices per pair
+    const linePositions = new Float32Array(PAIR_COUNT * 2 * 3);
+    const lineAlong     = new Float32Array(PAIR_COUNT * 2);     // 0 at start, 1 at end
+    const lineOffset    = new Float32Array(PAIR_COUNT * 2);     // same per pair
+    const lineWeight    = new Float32Array(PAIR_COUNT * 2);     // pair-level alpha
+
+    for (let p = 0; p < PAIR_COUNT; p++) {
+      const offset = rand();
+      lineAlong[p * 2]     = 0;
+      lineAlong[p * 2 + 1] = 1;
+      lineOffset[p * 2]     = offset;
+      lineOffset[p * 2 + 1] = offset;
+      lineWeight[p * 2] = 0;
+      lineWeight[p * 2 + 1] = 0;
+    }
+
+    const lineGeo = new THREE.BufferGeometry();
+    lineGeo.setAttribute('position',  new THREE.BufferAttribute(linePositions, 3));
+    lineGeo.setAttribute('aAlong',    new THREE.BufferAttribute(lineAlong, 1));
+    lineGeo.setAttribute('aOffset',   new THREE.BufferAttribute(lineOffset, 1));
+    lineGeo.setAttribute('aWeight',   new THREE.BufferAttribute(lineWeight, 1));
+
+    const lineMat = new THREE.ShaderMaterial({
+      uniforms: {
+        uTime:   { value: 0 },
+        uActive: { value: 0 }, // global alpha multiplier (scene-driven)
+        uColorA: { value: new THREE.Color('#5a8cff') },
+        uColorB: { value: new THREE.Color('#a06bff') },
+      },
+      vertexShader: /* glsl */`
+        attribute float aAlong;
+        attribute float aOffset;
+        attribute float aWeight;
+        varying float vAlong;
+        varying float vOffset;
+        varying float vWeight;
+        void main() {
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+          vAlong  = aAlong;
+          vOffset = aOffset;
+          vWeight = aWeight;
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform float uTime;
+        uniform float uActive;
+        uniform vec3  uColorA;
+        uniform vec3  uColorB;
+        varying float vAlong;
+        varying float vOffset;
+        varying float vWeight;
+        void main() {
+          // pulse position travels along the line
+          float phase = mod(uTime * 0.32 + vOffset, 1.0);
+          float dist  = abs(vAlong - phase);
+          float pulse = smoothstep(0.10, 0.0, dist) * 1.4;
+          // base trace
+          float base  = 0.10;
+          float a = (base + pulse) * vWeight * uActive;
+          vec3 col = mix(uColorA, uColorB, vAlong * 0.6 + vOffset * 0.4);
+          gl_FragColor = vec4(col, a);
+        }
+      `,
+      transparent: true,
+      blending: THREE.AdditiveBlending,
+      depthWrite: false,
+    });
+
+    const lineSegments = new THREE.LineSegments(lineGeo, lineMat);
+    scene.add(lineSegments);
+
+    // ============================================================
+    // Post-processing: bloom + film grain
+    // ============================================================
+    const composer = new EffectComposer(renderer);
+    composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    composer.setSize(window.innerWidth, window.innerHeight);
+
+    const renderPass = new RenderPass(scene, camera);
+    composer.addPass(renderPass);
+
+    const bloomPass = new UnrealBloomPass(
+      new THREE.Vector2(window.innerWidth, window.innerHeight),
+      0.85,   // strength
+      0.65,   // radius
+      0.05    // threshold
+    );
+    composer.addPass(bloomPass);
+
+    // Film grain pass
+    const FilmGrainShader = {
+      uniforms: {
+        tDiffuse: { value: null },
+        uTime:    { value: 0 },
+        uAmount:  { value: 0.08 },
+      },
+      vertexShader: /* glsl */`
+        varying vec2 vUv;
+        void main() {
+          vUv = uv;
+          gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+        }
+      `,
+      fragmentShader: /* glsl */`
+        uniform sampler2D tDiffuse;
+        uniform float uTime;
+        uniform float uAmount;
+        varying vec2 vUv;
+
+        float rand2(vec2 p) {
+          return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453);
+        }
+        void main() {
+          vec4 col = texture2D(tDiffuse, vUv);
+          float n = rand2(vUv * vec2(1024.0, 768.0) + uTime * 60.0);
+          float grain = (n - 0.5) * uAmount;
+          col.rgb += grain;
+          // subtle vignette via uv
+          vec2 uvc = vUv - 0.5;
+          float vig = smoothstep(0.85, 0.35, length(uvc));
+          col.rgb *= mix(0.78, 1.0, vig);
+          gl_FragColor = col;
+        }
+      `,
+    };
+    const filmGrainPass = new ShaderPass(FilmGrainShader);
+    composer.addPass(filmGrainPass);
+
+    const outputPass = new OutputPass();
+    composer.addPass(outputPass);
+
+    // ============================================================
+    // Resize
+    // ============================================================
+    function onResize() {
+      const w = window.innerWidth;
+      const h = window.innerHeight;
+      renderer.setSize(w, h);
+      composer.setSize(w, h);
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      bloomPass.setSize(w, h);
+    }
+    window.addEventListener('resize', onResize);
+
+    // ============================================================
+    // Single normalized scroll value (t)
+    // ============================================================
+    const state = {
+      t: 0,           // 0..1 normalized scroll
+      tSmooth: 0,     // smoothed for visual effects
+      time: 0,
+    };
+
+    // Establish total scroll length: 7 scenes × 100vh
+    const spacer = document.getElementById('scroll-spacer');
+    function setSpacerHeight() {
+      spacer.style.height = `${window.innerHeight * SCENES}px`;
+    }
+    setSpacerHeight();
+    window.addEventListener('resize', setSpacerHeight);
+
+    gsap.registerPlugin(ScrollTrigger);
+
+    ScrollTrigger.create({
+      trigger: spacer,
+      start: 'top top',
+      end: 'bottom bottom',
+      scrub: true,
+      onUpdate: (self) => { state.t = self.progress; },
+    });
+
+    // Hide hint once user starts scrolling
+    const hint = document.getElementById('hint');
+    window.addEventListener('scroll', () => {
+      if (window.scrollY > 30) hint.style.opacity = '0';
+      else hint.style.opacity = '';
+    }, { passive: true });
+
+    // ============================================================
+    // Scene → text overlay opacity logic
+    // ============================================================
+    const sceneEls = Array.from(document.querySelectorAll('.scene'));
+    const sceneIndexEl = document.getElementById('scene-index');
+    const sceneTagEl = document.getElementById('scene-tag');
+    const progressFill = document.getElementById('progress-fill');
+
+    // Each scene's text fades in over ~3% scroll, holds, fades out over ~2%.
+    // We expand each scene's visible window slightly outside its [s,e] range so
+    // adjacent scenes cross-fade across the boundary instead of cutting to black.
+    const FADE_IN  = 0.022;  // % of total scroll
+    const FADE_OUT = 0.018;
+    function sceneTextAlpha(sceneIdx, t) {
+      const [s, e] = SCENE_RANGES[sceneIdx];
+      // Scene 0: visible immediately at t=0 (title card)
+      const fiStart = sceneIdx === 0 ? -1 : s - FADE_IN * 0.5;
+      const fiEnd   = sceneIdx === 0 ?  0 : s + FADE_IN * 0.5;
+      // Last scene: stay visible to t=1
+      const foStart = sceneIdx === SCENES - 1 ? 1.5 : e - FADE_OUT * 0.5;
+      const foEnd   = sceneIdx === SCENES - 1 ? 2.0 : e + FADE_OUT * 0.5;
+
+      if (t < fiStart || t > foEnd) return 0;
+      const a = smoothstep(fiStart, fiEnd, t);
+      const b = 1.0 - smoothstep(foStart, foEnd, t);
+      return Math.max(0, Math.min(a, b));
+    }
+
+    // ============================================================
+    // Per-frame update
+    // ============================================================
+    const tmpVec = new THREE.Vector3();
+    const camTarget = new THREE.Vector3(0, 0, 0);
+
+    function update(dt) {
+      state.time += dt;
+
+      // Smooth t a touch for buttery motion (tSmooth ≈ t but with damping)
+      state.tSmooth += (state.t - state.tSmooth) * Math.min(1, dt * 6);
+
+      const t = state.tSmooth;
+
+      // Determine scene blend — driven by SCENE_RANGES (non-uniform widths).
+      // Within each scene we hold the formation for the first ~40% then morph
+      // into the next scene's formation over the remaining ~60%. This keeps
+      // the visual aligned with the text headline at scene start/middle and
+      // gives a smooth transition into the next scene.
+      let sIdx = 0;
+      let local = 0;
+      for (let i = 0; i < SCENES; i++) {
+        const [s, e] = SCENE_RANGES[i];
+        if (t <= e) {
+          sIdx = i;
+          local = clamp((t - s) / (e - s), 0, 1);
+          break;
+        }
+        if (i === SCENES - 1) { sIdx = SCENES - 1; local = 1; }
+      }
+      const HOLD = 0.40;
+      const lastIdx = sIdx === SCENES - 1;
+      const sBlendRaw = lastIdx ? 0 : clamp((local - HOLD) / (1 - HOLD), 0, 1);
+      const sBlend = easeInOut(sBlendRaw);
+      const A = targets[sIdx];
+      const B = targets[lastIdx ? sIdx : sIdx + 1];
+
+      // ---- update particle positions, colors, sizes, opacity ----
+      const posAttr = particleGeo.attributes.position.array;
+      const opaAttr = particleGeo.attributes.aOpacity.array;
+      const sizeAttr = particleGeo.attributes.aSize.array;
+
+      // Camera direction wobble adds tiny per-particle drift
+      const drift = state.time * 0.15;
+
+      for (let i = 0; i < NUM; i++) {
+        // morph target
+        const ix3 = i * 3;
+        const tx = lerp(A[ix3], B[ix3], sBlend);
+        const ty = lerp(A[ix3 + 1], B[ix3 + 1], sBlend);
+        const tz = lerp(A[ix3 + 2], B[ix3 + 2], sBlend);
+
+        // very gentle organic drift on top
+        const driftX = Math.sin(drift + i * 0.137) * 0.025;
+        const driftY = Math.cos(drift * 1.13 + i * 0.241) * 0.025;
+        const driftZ = Math.sin(drift * 0.71 + i * 0.341) * 0.020;
+
+        // smooth approach toward target
+        const lerpAmt = 0.18;
+        posAttr[ix3]     += (tx + driftX - posAttr[ix3])     * lerpAmt;
+        posAttr[ix3 + 1] += (ty + driftY - posAttr[ix3 + 1]) * lerpAmt;
+        posAttr[ix3 + 2] += (tz + driftZ - posAttr[ix3 + 2]) * lerpAmt;
+
+        // opacity from per-particle profile, blended between scenes
+        const oA = opacityProfiles[i * SCENES + sIdx];
+        const oB = opacityProfiles[i * SCENES + Math.min(SCENES - 1, sIdx + 1)];
+        opaAttr[i] = lerp(oA, oB, sBlend);
+
+        // size: subtle pulse + gentle scene growth toward INSIGHT
+        const insightBoost = smoothstep(0.85, 1.0, t) * 0.55;
+        sizeAttr[i] = baseSizes[i] * (1.0 + insightBoost) *
+          (0.85 + 0.25 * Math.sin(state.time * 1.4 + i * 0.31));
+      }
+      particleGeo.attributes.position.needsUpdate = true;
+      particleGeo.attributes.aOpacity.needsUpdate = true;
+      particleGeo.attributes.aSize.needsUpdate = true;
+
+      // ---- update connection lines ----
+      // Active starting from scene 2 (CONNECTION). Ramp up smoothly.
+      const connectionActive =
+        smoothstep(0.22, 0.32, t) * (1.0 - smoothstep(0.92, 1.0, t));
+      lineMat.uniforms.uTime.value = state.time;
+      lineMat.uniforms.uActive.value = connectionActive;
+
+      const linePosAttr = lineGeo.attributes.position.array;
+      const lineWeightAttr = lineGeo.attributes.aWeight.array;
+      const distThreshold = 2.6; // collapse longer-than-this to invisibility
+      const distSoft      = 1.8;
+
+      for (let p = 0; p < PAIR_COUNT; p++) {
+        const [ai, bi] = pairs[p];
+        const ax = posAttr[ai * 3],     ay = posAttr[ai * 3 + 1], az = posAttr[ai * 3 + 2];
+        const bx = posAttr[bi * 3],     by = posAttr[bi * 3 + 1], bz = posAttr[bi * 3 + 2];
+        const v0 = p * 6;
+        linePosAttr[v0]     = ax;
+        linePosAttr[v0 + 1] = ay;
+        linePosAttr[v0 + 2] = az;
+        linePosAttr[v0 + 3] = bx;
+        linePosAttr[v0 + 4] = by;
+        linePosAttr[v0 + 5] = bz;
+
+        const dx = bx - ax, dy = by - ay, dz = bz - az;
+        const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+        // weight: 1 when short, 0 when long
+        let w = 1 - clamp((d - distSoft) / (distThreshold - distSoft), 0, 1);
+        // and weight by both endpoints' opacity to avoid floating ghost lines
+        w *= Math.min(opaAttr[ai], opaAttr[bi]);
+
+        lineWeightAttr[p * 2]     = w;
+        lineWeightAttr[p * 2 + 1] = w;
+      }
+      lineGeo.attributes.position.needsUpdate = true;
+      lineGeo.attributes.aWeight.needsUpdate = true;
+
+      // ---- camera: slow forward drift + subtle rotation ----
+      const camZ = lerp(9, 4.2, easeInOut(t));
+      const camX = Math.sin(t * Math.PI * 0.9) * 0.6;
+      const camY = Math.sin(t * Math.PI * 1.4) * 0.35;
+      camera.position.set(camX, camY, camZ);
+
+      // subtle look-at orbit
+      camTarget.set(
+        Math.sin(t * Math.PI * 0.5) * 0.4,
+        Math.cos(t * Math.PI * 0.7) * 0.25,
+        0
+      );
+      camera.lookAt(camTarget);
+      camera.rotation.z = Math.sin(t * Math.PI * 1.2) * 0.06;
+
+      // ---- particle shader uniforms ----
+      particleMat.uniforms.uTime.value = state.time;
+
+      // ---- post: dynamic bloom intensity per scene ----
+      // gentle in early scenes, swells through CONNECTION, lifts in INSIGHT.
+      // Keep peak modest so headline copy stays legible against the core.
+      const bloomStrength =
+        0.55 +
+        smoothstep(0.15, 0.30, t) * 0.25 +
+        smoothstep(0.85, 1.0, t)  * 0.20;
+      bloomPass.strength = bloomStrength;
+
+      // ---- film grain time ----
+      filmGrainPass.uniforms.uTime.value = state.time;
+
+      // ---- text overlay opacity per scene ----
+      for (let i = 0; i < sceneEls.length; i++) {
+        sceneEls[i].style.opacity = sceneTextAlpha(i, t).toFixed(3);
+      }
+
+      // ---- progress bar ----
+      progressFill.style.width = `${(t * 100).toFixed(2)}%`;
+
+      // ---- scene index/tag (filmic metadata, only mid-sequence) ----
+      // Use SCENE_RANGES (not the morph blend index) for accurate labeling.
+      let activeScene = 0;
+      for (let i = 0; i < SCENES; i++) {
+        if (t >= SCENE_RANGES[i][0] && t <= SCENE_RANGES[i][1]) { activeScene = i; break; }
+      }
+      const showMeta = smoothstep(0.05, 0.10, t) * (1.0 - smoothstep(0.95, 1.0, t));
+      sceneIndexEl.style.opacity = showMeta.toFixed(3);
+      sceneTagEl.style.opacity   = showMeta.toFixed(3);
+      const idxLabel = String(activeScene).padStart(2, '0');
+      sceneIndexEl.textContent = `SCENE ${idxLabel}`;
+      sceneTagEl.textContent   = SCENE_TAGS[activeScene];
+    }
+
+    // ============================================================
+    // Render loop
+    // ============================================================
+    let prev = performance.now() / 1000;
+    function tick() {
+      const now = performance.now() / 1000;
+      const dt = Math.min(0.05, now - prev);
+      prev = now;
+      update(dt);
+      composer.render();
+      requestAnimationFrame(tick);
+    }
+    requestAnimationFrame(tick);
+
+    // Initial paint of opacities so we don't see all-zero on first frame
+    update(1 / 60);
+  </script>
+</body>
+</html>
