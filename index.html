@@ -488,6 +488,7 @@
         const nx = x * ca + z * sa;
         nz = -x * sa + z * ca;
         x = nx;
+        z = nz;
 
         arr[i * 3]     = r.cx + x;
         arr[i * 3 + 1] = r.cy + y;
