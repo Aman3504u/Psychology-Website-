@@ -61,6 +61,20 @@
       pointer-events: none;
     }
 
+    /* Initial cinematic fade-in */
+    #load-fade {
+      position: fixed;
+      inset: 0;
+      background: #000;
+      z-index: 60;
+      pointer-events: none;
+      opacity: 1;
+      transition: opacity 0.8s ease;
+    }
+    body.is-loaded #load-fade {
+      opacity: 0;
+    }
+
     #canvas {
       position: absolute;
       inset: 0;
@@ -151,6 +165,10 @@
       line-height: 0.92;
     }
 
+    .scene[data-scene='6'] h1 {
+      font-size: clamp(29px, 5.44vw, 82px);
+    }
+
     .scene .sub {
       margin-top: 28px;
       font-size: clamp(13px, 1.1vw, 16px);
@@ -184,9 +202,10 @@
       left: 0;
       right: 0;
       height: 1px;
-      background: rgba(255, 255, 255, 0.08);
-      z-index: 26;
+      background: rgba(255, 255, 255, 0.12);
+      z-index: 45;
       pointer-events: none;
+      opacity: 1;
     }
     #progress-fill {
       height: 100%;
@@ -266,6 +285,7 @@
     @media (max-width: 640px) {
       .scene h1 { font-size: clamp(28px, 9vw, 56px); }
       .scene[data-scene='0'] h1 { font-size: clamp(34px, 11vw, 64px); }
+      .scene[data-scene='6'] h1 { font-size: clamp(24px, 7.65vw, 48px); }
       #scene-index, #scene-tag { display: none; }
     }
   </style>
@@ -276,6 +296,7 @@
     <canvas id="canvas"></canvas>
     <div id="vignette"></div>
   </div>
+  <div id="load-fade" aria-hidden="true"></div>
 
   <!-- Scroll spacer establishes total scroll length -->
   <div id="scroll-spacer"></div>
@@ -312,7 +333,6 @@
     </section>
 
     <section class="scene" data-scene="5">
-      <span class="label">Awareness</span>
       <h1>What if you could<br />see the system?</h1>
     </section>
 
@@ -747,7 +767,13 @@
       return tex;
     }
 
-    function createBgLayer(url, { repeat = false, renderOrder = -10 } = {}) {
+    function createBgLayer(url, {
+      repeat = false,
+      renderOrder = -10,
+      fit = 'cover',
+      heightFactor = 1.15,
+      yOffsetFactor = 0,
+    } = {}) {
       const mat = new THREE.MeshBasicMaterial({
         map: null,
         color: 0xffffff,
@@ -762,27 +788,85 @@
       mesh.renderOrder = renderOrder;
       camera.add(mesh);
 
+      const layer = {
+        mesh,
+        material: mat,
+        fit,
+        heightFactor,
+        yOffsetFactor,
+        imageAspect: 1,
+      };
+
       const img = new Image();
       img.crossOrigin = 'anonymous';
       img.onload = () => {
+        layer.imageAspect = (img.naturalWidth || img.width) / (img.naturalHeight || img.height);
         mat.map = makeVignetteTexture(img, repeat);
         mat.needsUpdate = true;
+        sizeBgLayers();
       };
       img.src = url;
 
-      return { mesh, material: mat };
+      return layer;
     }
 
-    const bgNeural     = createBgLayer('assets/neural.png',     { renderOrder: -14 });
-    const bgSilhouette = createBgLayer('assets/silhouette.png', { renderOrder: -13 });
-    const bgGrid       = createBgLayer('assets/grid.png',       { renderOrder: -12, repeat: true });
-    const bgOrb        = createBgLayer('assets/orb.png',        { renderOrder: -11 });
-    const bgLayers = [bgNeural.mesh, bgSilhouette.mesh, bgGrid.mesh, bgOrb.mesh];
+    const bgNeural = createBgLayer('assets/neural.png', {
+      renderOrder: -14,
+      fit: 'cover',
+      heightFactor: 1.15,
+    });
+    const bgSilhouette = createBgLayer('assets/silhouette.png', {
+      renderOrder: -13,
+      fit: 'contain',
+      heightFactor: 0.70,
+      yOffsetFactor: 0.00,
+    });
+    const bgGrid = createBgLayer('assets/grid.png', {
+      renderOrder: -12,
+      repeat: true,
+      fit: 'cover',
+      heightFactor: 1.15,
+    });
+    const bgOrb = createBgLayer('assets/orb.png', {
+      renderOrder: -11,
+      fit: 'cover',
+      heightFactor: 1.00,
+    });
+    const bgLayers = [bgNeural, bgSilhouette, bgGrid, bgOrb];
 
     function sizeBgLayers() {
-      const h = 2 * Math.tan((camera.fov * Math.PI / 180) / 2) * BG_LAYER_DIST * 1.35;
-      const w = h * camera.aspect * 1.15;
-      for (const mesh of bgLayers) mesh.scale.set(w, h, 1);
+      const viewH = 2 * Math.tan((camera.fov * Math.PI / 180) / 2) * BG_LAYER_DIST;
+      const viewW = viewH * camera.aspect;
+      for (const layer of bgLayers) {
+        let w, h;
+        if (layer.fit === 'contain') {
+          h = viewH * layer.heightFactor;
+          w = h * layer.imageAspect;
+          const maxW = viewW * 0.88;
+          if (w > maxW) {
+            const s = maxW / w;
+            w *= s;
+            h *= s;
+          }
+        } else {
+          h = viewH * layer.heightFactor;
+          w = h * layer.imageAspect;
+          const minW = viewW * 1.12;
+          const minH = viewH * 1.12;
+          if (w < minW) {
+            const s = minW / w;
+            w *= s;
+            h *= s;
+          }
+          if (h < minH) {
+            const s = minH / h;
+            w *= s;
+            h *= s;
+          }
+        }
+        layer.mesh.scale.set(w, h, 1);
+        layer.mesh.position.set(0, viewH * layer.yOffsetFactor, -BG_LAYER_DIST);
+      }
     }
     sizeBgLayers();
 
@@ -1076,6 +1160,11 @@
       onUpdate: (self) => { state.t = self.progress; },
     });
 
+    // Let the first frame paint black, then dissolve into the scene.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => document.body.classList.add('is-loaded'));
+    });
+
     // Hide hint once user starts scrolling
     const hint = document.getElementById('hint');
     window.addEventListener('scroll', () => {
@@ -1121,8 +1210,9 @@
     function update(dt) {
       state.time += dt;
 
-      // Smooth t a touch for buttery motion (tSmooth ≈ t but with damping)
-      state.tSmooth += (state.t - state.tSmooth) * Math.min(1, dt * 6);
+      // Cinematic scroll inertia with dt-aware exponential damping so the
+      // easing feel stays consistent across 30/60/144 Hz displays.
+      state.tSmooth += (state.t - state.tSmooth) * (1 - Math.exp(-5 * dt));
 
       const t = state.tSmooth;
 
@@ -1240,7 +1330,7 @@
         0
       );
       camera.lookAt(camTarget);
-      camera.rotation.z = Math.sin(t * Math.PI * 1.2) * 0.06;
+      camera.rotation.z = Math.sin(t * Math.PI * 1.2) * 0.03;
 
       // ---- particle shader uniforms ----
       particleMat.uniforms.uTime.value = state.time;
@@ -1251,7 +1341,7 @@
       // invisible in scenes it isn't assigned to.
       //   neural:  Scene 2 peak 0.18 over 25-45%, residue 0.10 thru 60%, off by 65%.
       //   silhouette: Scene 4 peak 0.22 from 65-70%, off by 75%.
-      //   grid:    Scene 5 peak 0.20 from 80-85%, off by 90%.
+      //   grid:    Scene 5 peak 0.15 from 80-85%, off by 90%.
       //   orb:     Scene 6 peak 0.35 from 95% onward.
       const aNeural =
         0.18 * smoothstep(0.25, 0.30, t) * (1.0 - smoothstep(0.45, 0.50, t)) +
@@ -1259,7 +1349,7 @@
       const aSil =
         0.22 * smoothstep(0.60, 0.65, t) * (1.0 - smoothstep(0.70, 0.75, t));
       const aGrid =
-        0.20 * smoothstep(0.75, 0.80, t) * (1.0 - smoothstep(0.85, 0.90, t));
+        0.15 * smoothstep(0.75, 0.80, t) * (1.0 - smoothstep(0.85, 0.90, t));
       const aOrb =
         0.35 * smoothstep(0.90, 0.95, t);
       bgNeural.material.opacity     = aNeural;
