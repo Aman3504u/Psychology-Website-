@@ -260,6 +260,33 @@
       .hint-dot { animation: none; }
     }
 
+    /* Watermark — fixed bottom-left, never animated, always visible. */
+    #watermark {
+      position: fixed;
+      bottom: 18px;
+      left: 20px;
+      font-family: 'Epilogue', system-ui, sans-serif;
+      font-size: 11px;
+      letter-spacing: 0.1em;
+      color: rgba(255, 255, 255, 0.25);
+      z-index: 50;
+      pointer-events: none;
+      user-select: none;
+      font-weight: 400;
+    }
+    @media (max-width: 768px) {
+      #watermark { font-size: 9px; }
+      /* On mobile the centered footer would otherwise overlap the new
+         bottom-left watermark. Shift it to the right so both fit on the
+         narrow viewport without touching. */
+      #footer {
+        text-align: right;
+        padding-right: 20px;
+        letter-spacing: 0.18em;
+        font-size: 9px;
+      }
+    }
+
     /* Mobile typography tightening */
     @media (max-width: 768px) {
       .scene h1 { font-size: clamp(28px, 9vw, 56px); }
@@ -321,6 +348,9 @@
   <!-- Footer + progress -->
   <footer id="footer">© 2024 The Mind Is Not Quiet</footer>
   <div id="progress"><div id="progress-fill"></div></div>
+
+  <!-- Persistent watermark — always visible, never animated, never fades. -->
+  <div id="watermark">Made with ♥ by Aman</div>
 
   <!-- GSAP & ScrollTrigger -->
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
@@ -699,11 +729,19 @@
     const canvas = document.getElementById('canvas');
     const renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      // Antialiasing is expensive on mobile and barely visible on the
+      // bloomed/film-grained output. Disable it on phones to free up GPU
+      // budget for the post-process passes.
+      antialias: !IS_MOBILE,
       alpha: true,
       powerPreference: 'high-performance',
     });
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Cap the pixel ratio aggressively on mobile (most phones report DPR 2-3,
+    // which means 4-9× fragment-shader work for every pass). 1.25 keeps
+    // edges acceptably crisp on a phone while halving the per-frame GPU cost
+    // of the bloom + film-grain passes that were the main scroll-lag source.
+    const RENDER_PIXEL_RATIO = Math.min(window.devicePixelRatio || 1, IS_MOBILE ? 1.25 : 2);
+    renderer.setPixelRatio(RENDER_PIXEL_RATIO);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.setClearColor(0x05070a, 1);
     renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -1093,7 +1131,7 @@
     // Post-processing: bloom + film grain
     // ============================================================
     const composer = new EffectComposer(renderer);
-    composer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    composer.setPixelRatio(RENDER_PIXEL_RATIO);
     composer.setSize(window.innerWidth, window.innerHeight);
 
     const renderPass = new RenderPass(scene, camera);
@@ -1263,8 +1301,13 @@
       state.time += dt;
 
       // Cinematic scroll inertia with dt-aware exponential damping so the
-      // easing feel stays consistent across 30/60/144 Hz displays.
-      state.tSmooth += (state.t - state.tSmooth) * (1 - Math.exp(-5 * dt));
+      // easing feel stays consistent across 30/60/144 Hz displays. The rate
+      // constant `22` gives a settle time-constant of ~45ms, so the smoothed
+      // value catches up to the raw scroll within ~3 frames at 60 Hz —
+      // tight enough that scroll feels responsive instead of laggy, but
+      // still soft enough to absorb mouse-wheel quanta and trackpad jitter.
+      // (The previous rate of 5 gave tau ≈ 200ms, which read as scroll lag.)
+      state.tSmooth += (state.t - state.tSmooth) * (1 - Math.exp(-22 * dt));
 
       const t = state.tSmooth;
 
