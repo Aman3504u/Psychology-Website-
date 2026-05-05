@@ -280,9 +280,9 @@
   <!-- Scroll spacer establishes total scroll length -->
   <div id="scroll-spacer"></div>
 
-  <!-- Persistent brand mark -->
+  <!-- Persistent brand mark — text updates per scene -->
   <header id="brand">
-    <span class="mark">QUIET</span>
+    <span class="mark" id="brand-mark">VOID</span>
   </header>
 
   <!-- Scenes — layered text overlays -->
@@ -888,9 +888,9 @@
 
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(window.innerWidth, window.innerHeight),
-      0.85,   // strength
-      0.65,   // radius
-      0.05    // threshold
+      0.55,   // strength — tuned down so the additive halo doesn't bleed into the bg
+      0.40,   // radius — tighter so glow stays around bright cores
+      0.35    // threshold — only the brightest pixels bloom, keeping the bg clean #05070A
     );
     composer.addPass(bloomPass);
 
@@ -899,7 +899,7 @@
       uniforms: {
         tDiffuse: { value: null },
         uTime:    { value: 0 },
-        uAmount:  { value: 0.08 },
+        uAmount:  { value: 0.032 },
       },
       vertexShader: /* glsl */`
         varying vec2 vUv;
@@ -990,6 +990,7 @@
     const sceneEls = Array.from(document.querySelectorAll('.scene'));
     const sceneIndexEl = document.getElementById('scene-index');
     const sceneTagEl = document.getElementById('scene-tag');
+    const brandMarkEl = document.getElementById('brand-mark');
     const progressFill = document.getElementById('progress-fill');
 
     // Each scene's text fades in over ~3% scroll, holds, fades out over ~2%.
@@ -1146,12 +1147,12 @@
       particleMat.uniforms.uTime.value = state.time;
 
       // ---- post: dynamic bloom intensity per scene ----
-      // gentle in early scenes, swells through CONNECTION, lifts in INSIGHT.
-      // Keep peak modest so headline copy stays legible against the core.
+      // gentle in early scenes, modest swell through CONNECTION, small lift in
+      // INSIGHT. Kept low so the additive halo never tints the background.
       const bloomStrength =
-        0.55 +
-        smoothstep(0.15, 0.30, t) * 0.25 +
-        smoothstep(0.85, 1.0, t)  * 0.20;
+        0.30 +
+        smoothstep(0.15, 0.30, t) * 0.15 +
+        smoothstep(0.85, 1.0, t)  * 0.15;
       bloomPass.strength = bloomStrength;
 
       // ---- film grain time ----
@@ -1177,6 +1178,9 @@
       const idxLabel = String(activeScene).padStart(2, '0');
       sceneIndexEl.textContent = `SCENE ${idxLabel}`;
       sceneTagEl.textContent   = SCENE_TAGS[activeScene];
+
+      // ---- top brand: dynamic per-scene tag (VOID → EMERGENCE → ...) ----
+      brandMarkEl.textContent = SCENE_TAGS[activeScene];
     }
 
     // ============================================================
