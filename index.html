@@ -235,47 +235,16 @@
       100% { transform: scaleY(0.3); opacity: 0.2; }
     }
 
-    /* Scene index — small caps tag bottom-left during sequence */
-    #scene-index {
-      position: fixed;
-      bottom: 24px;
-      left: 36px;
-      font-size: 10px;
-      letter-spacing: 0.3em;
-      color: rgba(255, 255, 255, 0.55);
-      z-index: 27;
-      pointer-events: none;
-      font-weight: 700;
-      text-transform: uppercase;
-      opacity: 0;
-      transition: opacity 0.4s ease;
-    }
-    #scene-tag {
-      position: fixed;
-      bottom: 24px;
-      right: 36px;
-      font-size: 10px;
-      letter-spacing: 0.3em;
-      color: rgba(255, 255, 255, 0.55);
-      z-index: 27;
-      pointer-events: none;
-      font-weight: 700;
-      text-transform: uppercase;
-      opacity: 0;
-      transition: opacity 0.4s ease;
-    }
-
     /* Reduced motion fallback */
     @media (prefers-reduced-motion: reduce) {
       .hint-dot { animation: none; }
     }
 
     /* Mobile typography tightening */
-    @media (max-width: 640px) {
+    @media (max-width: 768px) {
       .scene h1 { font-size: clamp(28px, 9vw, 56px); }
       .scene[data-scene='0'] h1 { font-size: clamp(34px, 11vw, 64px); }
       .scene[data-scene='6'] h1 { font-size: clamp(24px, 7.65vw, 48px); }
-      #scene-index, #scene-tag { display: none; }
     }
   </style>
 </head>
@@ -325,10 +294,6 @@
       <h1>Change the pattern.<br />Change your life.</h1>
     </section>
   </div>
-
-  <!-- Scene index / tag (filmic metadata) -->
-  <div id="scene-index">SCENE 00</div>
-  <div id="scene-tag">VOID</div>
 
   <!-- Scroll hint -->
   <div id="hint">SCROLL<br /><span class="hint-dot"></span></div>
@@ -384,8 +349,11 @@
 
     // Viewport mode — single source of truth for mobile-specific tweaks.
     // We re-evaluate this on resize so the experience adapts when the user
-    // rotates a tablet from landscape into portrait or back.
-    const MOBILE_QUERY = window.matchMedia('(max-width: 640px)');
+    // rotates a tablet from landscape into portrait or back. The 768px
+    // threshold catches phablets and small tablets (iPad mini portrait,
+    // iPhone Pro Max landscape) so the disjoint fade and shrunk-orb
+    // behaviour kick in for every device a user would call "mobile".
+    const MOBILE_QUERY = window.matchMedia('(max-width: 768px)');
     let IS_MOBILE = MOBILE_QUERY.matches;
     // Hooks invoked whenever the viewport mode flips between desktop/mobile.
     // Used to re-apply orb sizing without requiring a page reload.
@@ -517,10 +485,15 @@
 
     function genBehavior(n) {
       // Rough human silhouette outline (head + shoulders + torso + legs).
-      // On mobile we shrink the figure so the full body — from head to feet —
-      // fits inside a portrait viewport instead of getting cropped to the head.
-      const fit = IS_MOBILE ? 0.65 : 1.0;
-      const headPts = 0.30, torsoPts = 0.45, legsPts = 0.20, jitter = 0.05;
+      // The figure is sized to fit inside the camera frustum during scene 4
+      // (camera dollies to z≈5.4 there, vertical view ≈ 5.6 world units).
+      // Without this scaling the figure ran ~6.7 world units tall and the
+      // viewport cropped both head and feet, which read as "only head
+      // visible". Mobile shrinks further so the full body fits a portrait
+      // phone too. Legs get a larger share of the points so they stay
+      // visible after the radial alpha mask thins the silhouette image.
+      const fit = IS_MOBILE ? 0.55 : 0.78;
+      const headPts = 0.26, torsoPts = 0.40, legsPts = 0.28, jitter = 0.05;
       const arr = new Float32Array(n * 3);
       const headN = Math.floor(n * headPts);
       const torsoN = Math.floor(n * torsoPts);
@@ -839,6 +812,9 @@
     const bgSilhouette = createBgLayer('assets/silhouette.png', {
       renderOrder: -13,
       fit: 'contain',
+      // 0.65 of viewport height keeps the head and feet inside even tall
+      // 9:16 phone frames; the contain fit preserves the figure's portrait
+      // aspect so the silhouette never crops to head-only.
       heightFactor: 0.65,
       yOffsetFactor: 0.00,
     });
@@ -853,16 +829,19 @@
     // height) and lift it above the headline so it never overlaps the text.
     const bgOrb = createBgLayer('assets/orb.png', {
       renderOrder: -11,
+      // Mobile: 25% of viewport height (half the previous 50%) and lifted
+      // well above the centred headline so the glow never sits behind the
+      // text. Desktop keeps the original full-frame cover sizing.
       fit: IS_MOBILE ? 'contain' : 'cover',
-      heightFactor: IS_MOBILE ? 0.50 : 1.00,
-      yOffsetFactor: IS_MOBILE ? 0.22 : 0.00,
+      heightFactor: IS_MOBILE ? 0.25 : 1.00,
+      yOffsetFactor: IS_MOBILE ? 0.30 : 0.00,
     });
     // Live-adjust orb sizing when the viewport mode flips so users who rotate
     // their device or resize a window get the corrected layout immediately.
     onMobileModeChange.push((mobile) => {
       bgOrb.fit = mobile ? 'contain' : 'cover';
-      bgOrb.heightFactor = mobile ? 0.50 : 1.00;
-      bgOrb.yOffsetFactor = mobile ? 0.22 : 0.00;
+      bgOrb.heightFactor = mobile ? 0.25 : 1.00;
+      bgOrb.yOffsetFactor = mobile ? 0.30 : 0.00;
       sizeBgLayers();
     });
     const bgLayers = [bgNeural, bgSilhouette, bgGrid, bgOrb];
@@ -1209,8 +1188,6 @@
     // Scene → text overlay opacity logic
     // ============================================================
     const sceneEls = Array.from(document.querySelectorAll('.scene'));
-    const sceneIndexEl = document.getElementById('scene-index');
-    const sceneTagEl = document.getElementById('scene-tag');
     const brandMarkEl = document.getElementById('brand-mark');
     const progressFill = document.getElementById('progress-fill');
 
@@ -1435,20 +1412,15 @@
       // ---- progress bar ----
       progressFill.style.width = `${(t * 100).toFixed(2)}%`;
 
-      // ---- scene index/tag (filmic metadata, only mid-sequence) ----
-      // Use SCENE_RANGES (not the morph blend index) for accurate labeling.
+      // ---- top brand: dynamic per-scene tag (VOID → EMERGENCE → ...) ----
+      // Use SCENE_RANGES (not the morph blend index) for accurate labelling.
+      // The brand mark is the single source of truth for the scene name; the
+      // bottom-corner SCENE NN / TAG labels were removed because they
+      // duplicated this label and read as a floating second copy.
       let activeScene = 0;
       for (let i = 0; i < SCENES; i++) {
         if (t >= SCENE_RANGES[i][0] && t <= SCENE_RANGES[i][1]) { activeScene = i; break; }
       }
-      const showMeta = smoothstep(0.05, 0.10, t) * (1.0 - smoothstep(0.95, 1.0, t));
-      sceneIndexEl.style.opacity = showMeta.toFixed(3);
-      sceneTagEl.style.opacity   = showMeta.toFixed(3);
-      const idxLabel = String(activeScene).padStart(2, '0');
-      sceneIndexEl.textContent = `SCENE ${idxLabel}`;
-      sceneTagEl.textContent   = SCENE_TAGS[activeScene];
-
-      // ---- top brand: dynamic per-scene tag (VOID → EMERGENCE → ...) ----
       brandMarkEl.textContent = SCENE_TAGS[activeScene];
     }
 
