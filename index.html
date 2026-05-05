@@ -786,6 +786,22 @@
     const BG_LAYER_DIST = 16;         // farther than the particle field, so layers stay behind it
     const bgPlaneGeom = new THREE.PlaneGeometry(1, 1, 1, 1);
 
+    // Direct CanvasTexture without the radial vignette mask — used for the
+    // silhouette layer where the source image already has its own dark
+    // background and the radial mask would crop the head/feet.
+    function makePlainTexture(image, repeat = false) {
+      const tex = new THREE.Texture(image);
+      tex.needsUpdate = true;
+      tex.colorSpace = THREE.SRGBColorSpace;
+      tex.minFilter = THREE.LinearFilter;
+      tex.magFilter = THREE.LinearFilter;
+      if (repeat) {
+        tex.wrapS = THREE.RepeatWrapping;
+        tex.wrapT = THREE.RepeatWrapping;
+      }
+      return tex;
+    }
+
     function makeVignetteTexture(image, repeat = false) {
       // Draw image to a canvas and erase a soft radial mask near the edges so
       // the rectangular bounds dissolve into the background.
@@ -825,6 +841,17 @@
       fit = 'cover',
       heightFactor = 1.15,
       yOffsetFactor = 0,
+      // Camera-local horizontal offset in world units. Used by `bgOrb` to
+      // compensate for the residual horizontal drift the camera-orbit
+      // animation induces in scene 6 (a roughly constant ~1.4 world-unit
+      // bias to the left at z = -16, regardless of viewport size).
+      xOffset = 0,
+      // Apply the soft radial vignette mask. On portrait subjects (the
+      // silhouette figure) the default mask fades the head/feet down to
+      // ~50% alpha, which reads as the figure being cropped. Setting this
+      // to false skips the mask entirely; the image's own dark background
+      // means we don't actually need a soft cutoff.
+      vignette = true,
     } = {}) {
       const mat = new THREE.MeshBasicMaterial({
         map: null,
@@ -846,6 +873,7 @@
         fit,
         heightFactor,
         yOffsetFactor,
+        xOffset,
         imageAspect: 1,
       };
 
@@ -853,7 +881,7 @@
       img.crossOrigin = 'anonymous';
       img.onload = () => {
         layer.imageAspect = (img.naturalWidth || img.width) / (img.naturalHeight || img.height);
-        mat.map = makeVignetteTexture(img, repeat);
+        mat.map = vignette ? makeVignetteTexture(img, repeat) : makePlainTexture(img, repeat);
         mat.needsUpdate = true;
         sizeBgLayers();
       };
@@ -870,11 +898,15 @@
     const bgSilhouette = createBgLayer('assets/silhouette.png', {
       renderOrder: -13,
       fit: 'contain',
-      // 0.65 of viewport height keeps the head and feet inside even tall
-      // 9:16 phone frames; the contain fit preserves the figure's portrait
-      // aspect so the silhouette never crops to head-only.
-      heightFactor: 0.65,
-      yOffsetFactor: 0.00,
+      // 0.58 of viewport height + a +0.14 yOffset (≈ 60 px above centre on
+      // a typical viewport) leaves clear space below the head and brings
+      // the full figure into the frame. Vignette is disabled here because
+      // the soft radial mask was fading the head and feet to ~50 % opacity
+      // on the portrait silhouette; the source image already has a dark
+      // background so we don't need a soft cutoff.
+      heightFactor: 0.58,
+      yOffsetFactor: 0.14,
+      vignette: false,
     });
     const bgGrid = createBgLayer('assets/grid.png', {
       renderOrder: -12,
@@ -934,7 +966,11 @@
           }
         }
         layer.mesh.scale.set(w, h, 1);
-        layer.mesh.position.set(0, viewH * layer.yOffsetFactor, -BG_LAYER_DIST);
+        layer.mesh.position.set(
+          layer.xOffset || 0,
+          viewH * layer.yOffsetFactor,
+          -BG_LAYER_DIST
+        );
       }
     }
     sizeBgLayers();
@@ -1447,19 +1483,28 @@
       lineGeo.attributes.aWeight.needsUpdate = true;
 
       // ---- camera: slow forward drift + subtle rotation ----
+      // Damp the cinematic drift to zero across scene 6 (INSIGHT) so the
+      // particle "orb" formation lands dead-centre on the viewport. Without
+      // this, the camera's lookAt-target reaches camTarget.x ≈ +0.4 at
+      // t=0.95, which makes anything sitting at world origin (the particle
+      // cloud) project ≈ 5–18% LEFT of the viewport centre depending on
+      // the viewport's aspect — hence the user-visible "orb drifting left".
+      const insightCenter = clamp((t - 0.85) / 0.10, 0, 1);
+      const driftDamp = 1 - insightCenter;
       const camZ = lerp(9, 4.2, easeInOut(t));
-      const camX = Math.sin(t * Math.PI * 0.9) * 0.6;
-      const camY = Math.sin(t * Math.PI * 1.4) * 0.35;
+      const camX = Math.sin(t * Math.PI * 0.9) * 0.6 * driftDamp;
+      const camY = Math.sin(t * Math.PI * 1.4) * 0.35 * driftDamp;
       camera.position.set(camX, camY, camZ);
 
-      // subtle look-at orbit
+      // subtle look-at orbit (also damped through scene 6 so the camera
+      // points at world origin when the orb scene fully resolves).
       camTarget.set(
-        Math.sin(t * Math.PI * 0.5) * 0.4,
-        Math.cos(t * Math.PI * 0.7) * 0.25,
+        Math.sin(t * Math.PI * 0.5) * 0.4 * driftDamp,
+        Math.cos(t * Math.PI * 0.7) * 0.25 * driftDamp,
         0
       );
       camera.lookAt(camTarget);
-      camera.rotation.z = Math.sin(t * Math.PI * 1.2) * 0.03;
+      camera.rotation.z = Math.sin(t * Math.PI * 1.2) * 0.03 * driftDamp;
 
       // ---- particle shader uniforms ----
       particleMat.uniforms.uTime.value = state.time;
