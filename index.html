@@ -1069,8 +1069,9 @@
         const driftY = Math.cos(drift * 1.13 + i * 0.241) * 0.025;
         const driftZ = Math.sin(drift * 0.71 + i * 0.341) * 0.020;
 
-        // smooth approach toward target
-        const lerpAmt = 0.18;
+        // smooth approach toward target — dt-aware exponential damping so the
+        // morph speed is identical at 30, 60 and 144 fps.
+        const lerpAmt = 1 - Math.exp(-12 * dt);
         posAttr[ix3]     += (tx + driftX - posAttr[ix3])     * lerpAmt;
         posAttr[ix3 + 1] += (ty + driftY - posAttr[ix3 + 1]) * lerpAmt;
         posAttr[ix3 + 2] += (tz + driftZ - posAttr[ix3 + 2]) * lerpAmt;
