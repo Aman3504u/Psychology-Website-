@@ -1210,9 +1210,9 @@
     function update(dt) {
       state.time += dt;
 
-      // Cinematic scroll inertia: damp toward the live scroll target with a
-      // fixed lerp factor so motion eases instead of snapping to the wheel.
-      state.tSmooth += (state.t - state.tSmooth) * 0.08;
+      // Cinematic scroll inertia with dt-aware exponential damping so the
+      // easing feel stays consistent across 30/60/144 Hz displays.
+      state.tSmooth += (state.t - state.tSmooth) * (1 - Math.exp(-5 * dt));
 
       const t = state.tSmooth;
 
